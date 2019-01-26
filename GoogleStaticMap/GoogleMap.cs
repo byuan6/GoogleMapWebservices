@@ -16,12 +16,27 @@ namespace MapAt
 {
     public class GoogleMap
     {
+        static string __API_KEY = GoogleApiKeys.MapsApiKey;
         static int Main(string[] args)
         {
             if (args.Length == 0 && System.Console.WindowWidth != 0 && System.Console.WindowHeight != 0)
             {
                 showUsage();
                 return 1;
+            }
+
+            if (string.IsNullOrWhiteSpace(GoogleApiKeys.MapsApiKey))
+            {
+                Console.WriteLine("No API key for Static Maps.  Please enter:");
+                Console.Write(">");
+                var key = Console.ReadLine();
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    Console.WriteLine("Bad API key");
+                    return 2;
+                }
+                else
+                    __API_KEY = GoogleApiKeys.MapsApiKey = key;
             }
 
             bool loop = true;
@@ -547,12 +562,6 @@ namespace MapAt
 
                 return name;
 
-                /*.ToString()
-                int start = @"https://maps.googleapis.com/maps/api/staticmap?".Length;
-                string cachefile = this.ToString().Substring(start).Replace("|", ".") + ".mapcached.png";
-
-                return cachefile;
-                 */
             }
 
             string calculateMD5Hash(string input)
@@ -641,10 +650,11 @@ namespace MapAt
                 }
 
                 // google supports https, but in linux, the certificate handling in the http object is not working
-                return string.Format("http://maps.googleapis.com/maps/api/staticmap?center={0}&zoom={1}&size={2}x{2}&scale={3}&maptype={4}{5}{6}",
+                return string.Format("https://maps.googleapis.com/maps/api/staticmap?key={7}&center={0}&zoom={1}&size={2}x{2}&scale={3}&maptype={4}{5}{6}",
                     System.Uri.EscapeDataString(this.Center), (int)this.Zoom,(int)this.Size,(int)this.Scale, System.Uri.EscapeDataString(this.Type.ToString()),
                     markall.ToString(),
-                    pathall.ToString());
+                    pathall.ToString(),
+                    __API_KEY);
             }
         }
 
@@ -1563,6 +1573,37 @@ namespace MapAt
             return (int)(Math.Round(offset - radius * Math.Log((1 +
                          Math.Sin(y * Math.PI / 180)) / (1 - Math.Sin(y *
                          Math.PI / 180))) / 2));
+        }
+    }
+
+    static public partial class GoogleApiKeys
+    {
+        static public string MapsApiKey
+        {
+            get
+            {
+                var config = System.Configuration.ConfigurationManager.OpenExeConfiguration(System.Configuration.ConfigurationUserLevel.None);
+                var element = config.AppSettings.Settings["GoogleMapsApiKey"];
+                var key = element == null ? null : element.Value;
+#if DEBUG
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    var devkey = Environment.GetEnvironmentVariable("GoogleMapsApiKey");
+                    if (!string.IsNullOrWhiteSpace(key))
+                        GoogleApiKeys.MapsApiKey = key = devkey;
+                }
+#endif
+                return key;
+            }
+            set
+            {
+                var config = System.Configuration.ConfigurationManager.OpenExeConfiguration(System.Configuration.ConfigurationUserLevel.None);
+                if (config.AppSettings.Settings["GoogleMapsApiKey"] == null)
+                    config.AppSettings.Settings.Add("GoogleMapsApiKey", value);
+                else
+                    config.AppSettings.Settings["GoogleMapsApiKey"].Value = value;
+                config.Save(System.Configuration.ConfigurationSaveMode.Modified);
+            }
         }
     }
 }

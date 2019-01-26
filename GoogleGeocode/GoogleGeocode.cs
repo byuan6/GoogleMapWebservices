@@ -12,12 +12,27 @@ namespace CoordinatesOf
 {
     public class GoogleGeocode
     {
+        static string __API_KEY = GoogleApiKeys.GeocodeApiKey;
         static int Main(string[] args)
         {
             if (args.Length == 0 && System.Console.WindowWidth != 0 && System.Console.WindowHeight != 0)
             {
                 showUsage();
                 return 1;
+            }
+
+            if (string.IsNullOrWhiteSpace(GoogleApiKeys.GeocodeApiKey))
+            {
+                Console.WriteLine("No API key for Geocoding.  Please enter:");
+                Console.Write(">");
+                var key = Console.ReadLine();
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    Console.WriteLine("Bad API key");
+                    return 2;
+                }
+                else
+                    __API_KEY = GoogleApiKeys.GeocodeApiKey = key;
             }
 
             //check for -diags t check caches
@@ -34,18 +49,24 @@ namespace CoordinatesOf
             }
 
             //see if its a file
+            string last = null;
             int rcode = 0;
             if (args.Length == 1 && System.Console.WindowWidth != 0 && System.Console.WindowHeight != 0 && File.Exists(args[0]))
             {
                 using(var fs = File.OpenText(args[0]))
                     while(!fs.EndOfStream)
+                    try
                     {
-                        var line = fs.ReadLine();
+                        var line = last = fs.ReadLine();
                         LocationResults location = getCachedLocation(line);
                         if (location != null)
                             showResult(line, location);
                         else
                             rcode = 2;
+                    }
+                    catch(Exception ex)
+                    {
+                        Console.WriteLine("[{0}] produced error [{1}]", last, ex.Message);
                     }
 
                 return rcode;
@@ -54,7 +75,8 @@ namespace CoordinatesOf
             // stdin
             string sin;
             if (System.Console.WindowWidth == 0 && System.Console.WindowHeight == 0)
-                while ((sin = Console.ReadLine()) != null)
+                while ((sin = last = Console.ReadLine()) != null)
+                try
                 {
                     LocationResults location = getCachedLocation(sin);
                     if (location != null)
@@ -62,16 +84,27 @@ namespace CoordinatesOf
                     else
                         rcode = 2;
                 }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("[{0}] produced error [{1}]", last, ex.Message);
+                }
 
             // all the arguments must be locations then
             foreach(var term in args)
-            {
-                LocationResults location = getCachedLocation(term);
-                if (location != null)
-                    showResult(term, location);
-                else
-                    rcode = 2;
-            }
+                try
+                {
+                    last = term;
+
+                    LocationResults location = getCachedLocation(term);
+                    if (location != null)
+                        showResult(term, location);
+                    else
+                        rcode = 2;
+                }
+                catch(Exception ex)
+                {
+                    Console.WriteLine("[{0}] produced error [{1}]", last, ex.Message);
+                }
 
 #if DEBUG
             Console.WriteLine("Press [enter] to end");
@@ -206,7 +239,7 @@ namespace CoordinatesOf
         static public LocationResults getLocationFromGoogle(string s)
         {
             // string url = "http://maps.google.com/maps/api/geocode/xml?address=1600+Amphitheatre+Parkway,+Mountain+View,+CA&sensor=false";
-            string url = string.Format(@"http://maps.google.com/maps/api/geocode/xml?address={0}&sensor=false", s);
+            string url = string.Format(@"https://maps.google.com/maps/api/geocode/xml?key={1}&address={0}&sensor=false", s, __API_KEY);
 
             XmlDocument doc = MakeRequest(url);
 
@@ -280,6 +313,11 @@ namespace CoordinatesOf
 
             double dbl = 0;
             LocationResults result = new LocationResults();
+            XmlNode statusnode = doc.DocumentElement.SelectSingleNode("/GeocodeResponse/status");
+            if (statusnode != null)
+                if (statusnode.InnerText != "OK")
+                    throw new ArgumentException("Bad status received " + statusnode.InnerText);
+
             XmlNode latnode = doc.DocumentElement.SelectSingleNode("/GeocodeResponse/result/geometry/location/lat");
             if (latnode != null && double.TryParse(latnode.InnerText, out dbl))
                 result.Lat = dbl;
@@ -325,6 +363,37 @@ namespace CoordinatesOf
 
 
             return result;
+        }
+    }
+
+    static public partial class GoogleApiKeys
+    {
+        static public string GeocodeApiKey
+        {
+            get
+            {
+                var config = System.Configuration.ConfigurationManager.OpenExeConfiguration(System.Configuration.ConfigurationUserLevel.None);
+                var element = config.AppSettings.Settings["GoogleGeocodeApiKey"];
+                var key = element==null ? null : element.Value;
+#if DEBUG
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    var devkey = Environment.GetEnvironmentVariable("GoogleGeocodeApiKey");
+                    if (!string.IsNullOrWhiteSpace(key))
+                        GoogleApiKeys.GeocodeApiKey = key = devkey;
+                }
+#endif
+                return key;
+            }
+            set
+            {
+                var config = System.Configuration.ConfigurationManager.OpenExeConfiguration(System.Configuration.ConfigurationUserLevel.None);
+                if (config.AppSettings.Settings["GoogleGeocodeApiKey"] == null)
+                    config.AppSettings.Settings.Add("GoogleGeocodeApiKey", value);
+                else
+                    config.AppSettings.Settings["GoogleGeocodeApiKey"].Value = value;
+                config.Save(System.Configuration.ConfigurationSaveMode.Modified);
+            }
         }
     }
 }

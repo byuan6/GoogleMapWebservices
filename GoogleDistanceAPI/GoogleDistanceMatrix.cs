@@ -14,12 +14,28 @@ namespace DistanceBetween
 {
     public class GoogleDistanceMatrix
     {
+        static string __API_KEY = GoogleApiKeys.DistanceApiKey;
+
         static int Main(string[] args)
         {
             if (args.Length == 0 && System.Console.WindowWidth != 0 && System.Console.WindowHeight != 0)
             {
                 showUsage();
                 return 1;
+            }
+
+            if (string.IsNullOrWhiteSpace(GoogleApiKeys.DistanceApiKey))
+            {
+                Console.WriteLine("No API key for Distance API.  Please enter:");
+                Console.Write(">");
+                var key = Console.ReadLine();
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    Console.WriteLine("Bad API key");
+                    return 2;
+                }
+                else
+                    __API_KEY = GoogleApiKeys.DistanceApiKey = key;
             }
 
             //see if its a file
@@ -200,7 +216,7 @@ namespace DistanceBetween
         {
             string joined = string.Join("|", places);
             // string url = "http://maps.googleapis.com/maps/api/distancematrix/xml?origins=New+York+NY|Seattle&destinations=San+Francisco|New+York+NY|Boston&mode=driving&language=en-US&sensor=false";
-            string url = string.Format(@"http://maps.googleapis.com/maps/api/distancematrix/xml?origins={0}&destinations={0}&mode=driving&language=en-US&sensor=false", joined);
+            string url = string.Format(@"https://maps.googleapis.com/maps/api/distancematrix/xml?key={1}&origins={0}&destinations={0}&mode=driving&language=en-US&sensor=false", joined, __API_KEY);
 
             XmlDocument doc = MakeRequest(url);
 
@@ -334,6 +350,38 @@ namespace DistanceBetween
             }
 
             return result;
+        }
+    }
+
+
+    static public partial class GoogleApiKeys
+    {
+        static public string DistanceApiKey
+        {
+            get
+            {
+                var config = System.Configuration.ConfigurationManager.OpenExeConfiguration(System.Configuration.ConfigurationUserLevel.None);
+                var element = config.AppSettings.Settings["GoogleDistanceApiKey"];
+                var key = element == null ? null : element.Value;
+#if DEBUG
+                if (string.IsNullOrWhiteSpace(key))
+                {
+                    var devkey = Environment.GetEnvironmentVariable("GoogleDistanceApiKey");
+                    if (!string.IsNullOrWhiteSpace(key))
+                        GoogleApiKeys.DistanceApiKey = key = devkey;
+                }
+#endif
+                return key;
+            }
+            set
+            {
+                var config = System.Configuration.ConfigurationManager.OpenExeConfiguration(System.Configuration.ConfigurationUserLevel.None);
+                if (config.AppSettings.Settings["GoogleDistanceApiKey"] == null)
+                    config.AppSettings.Settings.Add("GoogleDistanceApiKey", value);
+                else
+                    config.AppSettings.Settings["GoogleDistanceApiKey"].Value = value;
+                config.Save(System.Configuration.ConfigurationSaveMode.Modified);
+            }
         }
     }
 }

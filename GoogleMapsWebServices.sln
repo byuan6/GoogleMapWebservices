@@ -8,13 +8,6 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapAt", "GoogleStaticMap\MapAt.csproj", "{E5998C02-48CF-4F5A-9515-DD6ACD716D74}"
 EndProject
 Global
-	GlobalSection(SourceCodeControl) = preSolution
-		SccNumberOfProjects = 1
-		SccProjectUniqueName0 = GoogleDistanceAPI\\DistanceBetween.csproj
-		SccProjectName0 = \u0022$/TravelingSalesman.root/TravelingSalesman/DistanceBetween\u0022,\u0020YIBAAAAA
-		SccLocalPath0 = GoogleDistanceAPI
-		SccProvider0 = MSSCCI:Microsoft\u0020Visual\u0020SourceSafe
-	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
 		Release|x86 = Release|x86
