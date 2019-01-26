@@ -9,19 +9,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapAt", "GoogleStaticMap\Ma
 EndProject
 Global
 	GlobalSection(SourceCodeControl) = preSolution
-		SccNumberOfProjects = 3
-		SccProjectUniqueName0 = GoogleGeocode\\CoordinatesOf.csproj
-		SccProjectName0 = \u0022$/TravelingSalesman.root/TravelingSalesman/CoordinatesOf\u0022,\u0020SIBAAAAA
-		SccLocalPath0 = GoogleGeocode
+		SccNumberOfProjects = 1
+		SccProjectUniqueName0 = GoogleDistanceAPI\\DistanceBetween.csproj
+		SccProjectName0 = \u0022$/TravelingSalesman.root/TravelingSalesman/DistanceBetween\u0022,\u0020YIBAAAAA
+		SccLocalPath0 = GoogleDistanceAPI
 		SccProvider0 = MSSCCI:Microsoft\u0020Visual\u0020SourceSafe
-		SccProjectUniqueName1 = GoogleDistanceAPI\\DistanceBetween.csproj
-		SccProjectName1 = \u0022$/TravelingSalesman.root/TravelingSalesman/DistanceBetween\u0022,\u0020YIBAAAAA
-		SccLocalPath1 = GoogleDistanceAPI
-		SccProvider1 = MSSCCI:Microsoft\u0020Visual\u0020SourceSafe
-		SccProjectUniqueName2 = GoogleStaticMap\\MapAt.csproj
-		SccProjectName2 = \u0022$/TravelingSalesman.root/TravelingSalesman/MapAt\u0022,\u0020EJBAAAAA
-		SccLocalPath2 = GoogleStaticMap
-		SccProvider2 = MSSCCI:Microsoft\u0020Visual\u0020SourceSafe
 	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
