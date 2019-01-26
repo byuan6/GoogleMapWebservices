@@ -832,11 +832,12 @@ namespace MapAt
             }
         }
 
+        static TimeSpan __30_DAYS = new TimeSpan(30, 0, 0, 0);
         static public Bitmap getCachedMap(MapRequest userinput)
         {
             string cachefile = userinput.ToFilename();
 
-            if (File.Exists(cachefile))
+            if (File.Exists(cachefile) && DateTime.Now - (new FileInfo(cachefile)).LastWriteTime < __30_DAYS)
                 try
                 {
                     return ReadData(cachefile);

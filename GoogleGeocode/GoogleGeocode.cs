@@ -212,12 +212,13 @@ namespace CoordinatesOf
             return good;
         }
 
+        static TimeSpan __30_DAYS = new TimeSpan(30, 0, 0, 0);
         static public LocationResults getCachedLocation(string s)
         {
             string escaped = System.Uri.EscapeDataString(s);
             string cachefile = escaped + ".geocached";
 
-            if (File.Exists(cachefile))
+            if (File.Exists(cachefile) && DateTime.Now - (new FileInfo(cachefile)).LastWriteTime < __30_DAYS)
                 try
                 {
                     var data = ReadXML(cachefile);

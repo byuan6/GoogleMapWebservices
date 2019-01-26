@@ -189,13 +189,14 @@ namespace DistanceBetween
             return myObject;
         }
 
+        static TimeSpan __30_DAYS = new TimeSpan(30, 0, 0, 0);
         static public DistanceResults getCachedDistances(string[] places)
         {
             string[] escaped = places.Select<string, string>(s => System.Uri.EscapeDataString(s)).ToArray<string>();
             string joined = string.Join("|", escaped);
             string cachefile = joined.Replace("|","_") + ".distcached";
 
-            if (File.Exists(cachefile))
+            if (File.Exists(cachefile) && DateTime.Now - (new FileInfo(cachefile)).LastWriteTime < __30_DAYS)
                 try
                 {
                     return ReadXML(cachefile);
