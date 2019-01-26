@@ -1,0 +1,18 @@
+# ignore all compiled directories
+**/obj
+**/bin
+
+# ignore sourcesafe files
+*.scc
+
+# ignore visual studio integration
+*.vspscc
+*.vssscc
+*.vsmdi
+
+# visual studio user options
+*.user
+*.suo
+
+# ignoring key files
+*.key
