@@ -26,6 +26,12 @@ namespace MapAt
                 return 1;
             }
 
+            if (Array.IndexOf(args, "-ReduceUrlTo928") >= 0)
+            {
+                MAX_GOOGLE_LENGTH = 928;
+                args[Array.IndexOf(args, "-ReduceUrlTo928")]=null;
+            }
+
             if (string.IsNullOrWhiteSpace(GoogleApiKeys.MapsApiKey))
             {
                 Console.WriteLine("No API key for Static Maps.  Please enter:");
@@ -139,6 +145,8 @@ namespace MapAt
             Console.WriteLine("      fillcolor:[black|brown|green|purple|yellow|blue|gray|orange|red|white]");
             Console.WriteLine("      fillcolor:0xRRGGBB or 0xAARRGGBB");
 
+            Console.WriteLine("    Debugging options");
+            Console.WriteLine("      -ReduceUrlTo928");
         }
         static void showResult(string orig, Bitmap map)
         {
@@ -460,6 +468,68 @@ namespace MapAt
 
                 return sb.ToString();
             }
+
+            /// <summary>
+            /// https://developers.google.com/maps/documentation/utilities/polylinealgorithm
+            /// </summary>
+            /// <returns></returns>
+            public string ToPolyline(IEnumerable<PathCoordinate> list)
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.Append("enc:");
+
+                PathCoordinate? last = null;
+                foreach (var item in list)
+                {
+                    if (last.HasValue)
+                        sb.Append(item.ToPolyline(last.Value));
+                    else
+                        sb.Append(item.ToPolyline());
+                }
+
+                return sb.ToString();
+            }
+
+            public struct PathCoordinate
+            {
+                public PathCoordinate(double lat, double lon)
+                {
+                    this.Lat = lat;
+                    this.Lon = lon;
+                }
+
+                public double Lat;
+                public double Lon;
+
+                public string ToPolyline()
+                {
+                    int count = 0;
+                    char[] polyline = new char[7];
+
+                    var lat = (Int32)Math.Round(this.Lat * 5);
+                    var left = (lat << 1);
+                    if (lat < 0)
+                        left = ~left;
+                    var mask = 63;
+                    var follows = 0;
+                    while (left != 0)
+                    {
+                        var chunk = mask & left;
+                        if (follows != 0)
+                            chunk = chunk | follows;
+                        var ch = (char)(chunk + 63);
+                        polyline[count++] = ch;
+                        left = left >> 5;
+
+                        follows = 0x20;
+                    }
+                    return new string(polyline, 0, count);
+                }
+                public string ToPolyline(PathCoordinate prev)
+                {
+                    throw new NotImplementedException();
+                }
+            }
         }
         public class MapRequest
         {
@@ -510,11 +580,6 @@ namespace MapAt
                 bool skip = false;
                 foreach (var m in this.Markers)
                 {
-                    if (!skip)
-                    {
-                        skip = true;
-                        continue;
-                    }
                     string delimiter = ".";
                     string options = m.Key.ToString();
                     if (options != null)
@@ -605,6 +670,7 @@ namespace MapAt
 
 
 
+
             /// <summary>
             /// To Url
             /// </summary>
@@ -622,13 +688,13 @@ namespace MapAt
                     {
                         markall.Append(delimiter);
                         markall.Append(options);
-                        delimiter = "|";
+                        delimiter = "%7C";
                     }
                     foreach (var spot in m.Value)
                     {
                         markall.Append(delimiter);
                         markall.Append(System.Uri.EscapeDataString(spot).Replace("%20", "+"));
-                        delimiter = "|";
+                        delimiter = "%7C";
                     }
                 }
 
@@ -640,13 +706,13 @@ namespace MapAt
                     {
                         pathall.Append(delimiter);
                         pathall.Append(options);
-                        delimiter = "|";
+                        delimiter = "%7C";
                     }
                     foreach (var spot in p.Value)
                     {
                         pathall.Append(delimiter);
                         pathall.Append(System.Uri.EscapeDataString(spot).Replace("%20", "+"));
-                        delimiter = "|";
+                        delimiter = "%7C";
                     }
                 }
 
@@ -718,7 +784,7 @@ namespace MapAt
                         req.Type = (MapRequest.MapType)Enum.Parse(typeof(MapRequest.MapType), item.Substring(1));
                         break;
 
-                    case "-markers":
+                    case "-marker":
                         mode = modeoptions.marker;
                         if (req.Markers.Count != 0 || mr == null)
                         {
@@ -753,19 +819,22 @@ namespace MapAt
                         break;
 
                     default:
-                        if (item.StartsWith("-") && !isDecimalCoordinate(item).HasValue)
-                            throw new ArgumentException("Unknown option " + item);
-                        if (mode == modeoptions.marker)
+                        if (item != null)
                         {
-                            if (!mr.ParseAttrib(item))
-                                req.Markers[mr].Add(item);
+                            if (item.StartsWith("-") && !isDecimalCoordinate(item).HasValue)
+                                throw new ArgumentException("Unknown option " + item);
+                            if (mode == modeoptions.marker)
+                            {
+                                if (!mr.ParseAttrib(item))
+                                    req.Markers[mr].Add(item);
+                            }
+                            if (mode == modeoptions.path)
+                            {
+                                if (!pr.ParseAttrib(item))
+                                    req.Paths[pr].Add(item);
+                            }
+                            //Console.WriteLine("Adding into " + mode.ToString()+" " + mr.Index + " " + pr.Index);
                         }
-                        if (mode == modeoptions.path)
-                        {
-                            if (!pr.ParseAttrib(item))
-                                req.Paths[pr].Add(item);
-                        }
-                        //Console.WriteLine("Adding into " + mode.ToString()+" " + mr.Index + " " + pr.Index);
                         break;
                 }
             }
@@ -890,63 +959,49 @@ namespace MapAt
                 using (var justmapRaw = getCachedMap(justmapreq))
                 using (var comparer = new NaiveDifference(justmapRaw))
                 {
-                    List<Bitmap> markermaps = new List<Bitmap>();
-                    List<Bitmap> pathmaps = new List<Bitmap>();
-                    var pathkeys = userinput.Paths.Keys.ToArray();
-                    var markerkeys = userinput.Markers.Keys.ToArray();
-                    Parallel.For(0, 2, new Action<int>(delegate(int task)
+                    //List<Bitmap> markermaps = new List<Bitmap>();
+                    //List<Bitmap> pathmaps = new List<Bitmap>();
+                    var requests = new Dictionary<MapRequest, Bitmap>();
+                    foreach (var item in splitRequestToGoogle(userinput))
                     {
-                        if(task==0)
-                            //for (int i = 0; i < userinput.Paths.Count; i++)
-                            Parallel.For(0, userinput.Paths.Count, new Action<int>(delegate(int i)
-                            {
-                                MapRequest pathreq = cloneWoFeatures(userinput);
-                                var key = pathkeys[i];
-                                pathreq.Paths.Add(key, userinput.Paths[key]);
-                                if (pathreq.ToString().Length > MAX_GOOGLE_LENGTH)
-                                    throw new ArgumentOutOfRangeException("Path too long " + pathreq.ToString());
+#if DEBUG
+                        Console.WriteLine("-->" + item.ToString());
+#endif
+                        requests.Add(item, null);
+                    }
+                    var options = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount };
+                    Parallel.ForEach(requests.Keys.ToArray(), options, new Action<MapRequest>(delegate(MapRequest subreq)
+                    {
+                        if (subreq.ToString().Length > MAX_GOOGLE_LENGTH)
+                            throw new InvalidProgramException("request too long " + subreq.ToString());
 
-                                using (var pathBMP = getCachedMap(pathreq))
-                                {
-                                    var delta = comparer.Compare(pathBMP);
-                                    lock(pathmaps)
-                                        pathmaps.Add(delta);
-                                }
-                            }));
-                        int offset = userinput.Paths.Count;
-                        if(task==1)
-                            //for (int i = 0; i < userinput.Markers.Count; i++)
-                            Parallel.For(0, userinput.Markers.Count, new Action<int>(delegate(int i)
-                            {
-                                MapRequest markerreq = cloneWoFeatures(userinput);
-                                var key = markerkeys[i];
-                                markerreq.Markers.Add(key, userinput.Markers[key]);
-                                if (markerreq.ToString().Length > MAX_GOOGLE_LENGTH)
-                                    throw new ArgumentOutOfRangeException("Markers too long " + markerreq.ToString());
-
-                                using (var markBMP = getCachedMap(markerreq))
-                                {
-                                    var delta = comparer.Compare(markBMP);
-                                    lock(markermaps)
-                                        markermaps.Add(delta);
-                                }
-                            }));
+                        using (var pathBMP = getCachedMap(subreq))
+                        {
+                            var delta = comparer.Compare(pathBMP);
+                            lock (requests)
+                                requests[subreq] = delta;
+                        }
                     }));
+
                     
                     var rect = new Rectangle(0,0,justmapRaw.Width, justmapRaw.Height);
-                    using(var g = Graphics.FromImage(justmapRaw))
+                    using (var composite = NaiveDifference.CloneBitmap(justmapRaw))
                     {
-                        foreach(var item in pathmaps)
-                            g.DrawImage(item, rect);
-                        foreach (var item in markermaps)
-                            g.DrawImage(item, rect);
-                    }
+                        using (var g = Graphics.FromImage(composite))
+                        {
+                            foreach (var item in requests.Values)
+                            {
+                                g.DrawImage(item, rect);
+                                item.Dispose();
+                            }
+                        }
 
-                    //
-                    MemoryStream ms = new MemoryStream();
-                    justmapRaw.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
-                    ms.Position = 0;
-                    return ms;
+                        //
+                        MemoryStream ms = new MemoryStream();
+                        composite.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                        ms.Position = 0;
+                        return ms;
+                    }
                 }
             }
             catch (Exception ex)
@@ -956,6 +1011,86 @@ namespace MapAt
                 Console.WriteLine(ex.StackTrace);
 #endif
                 throw;
+            }
+        }
+
+        static IEnumerable<MapRequest> splitRequestToGoogle(MapRequest userinput)
+        {
+            if(userinput.ToString().Length<MAX_GOOGLE_LENGTH)
+            {
+                yield return userinput;
+            } 
+            else
+            {
+                MapRequest req = cloneWoFeatures(userinput);
+                if (userinput.Paths.Count > 1)
+                {
+                    MapRequest req1 = cloneWoFeatures(req);
+                    MapRequest req2 = cloneWoFeatures(req);
+                    var half = userinput.Paths.Count;
+                    var count=0;
+                    foreach(var item in userinput.Paths)
+                    {
+                        if(count<half)
+                            req1.Paths.Add(item.Key, item.Value);
+                        if(count>=half)
+                            req2.Paths.Add(item.Key, item.Value);
+                        foreach(var subreq in splitRequestToGoogle(req1))
+                            yield return subreq;
+                        foreach(var subreq in splitRequestToGoogle(req2))
+                            yield return subreq;
+                        count++;
+                    }
+                }
+                else if (userinput.Paths.Count == 1)
+                {
+                    var key = userinput.Paths.Keys.First();
+                    var value = userinput.Paths.Values.First();
+                    var count = value.Count;
+                    var half = count/2;
+                    MapRequest req1 = cloneWoFeatures(req);
+                    MapRequest req2 = cloneWoFeatures(req);
+                    req1.Paths.Add(key, value.Take(half+1).ToList());
+                    req2.Paths.Add(key, value.Skip(half).ToList());
+                    foreach (var subreq in splitRequestToGoogle(req1))
+                        yield return subreq;
+                    foreach (var subreq in splitRequestToGoogle(req2))
+                        yield return subreq;
+                }
+                if (userinput.Markers.Count > 1)
+                {
+                    MapRequest req1 = cloneWoFeatures(req);
+                    MapRequest req2 = cloneWoFeatures(req);
+                    var half = userinput.Markers.Count;
+                    var count = 0;
+                    foreach (var item in userinput.Markers)
+                    {
+                        if (count < half)
+                            req1.Markers.Add(item.Key, item.Value);
+                        if (count >= half)
+                            req2.Markers.Add(item.Key, item.Value);
+                        foreach (var subreq in splitRequestToGoogle(req1))
+                            yield return subreq;
+                        foreach (var subreq in splitRequestToGoogle(req2))
+                            yield return subreq;
+                        count++;
+                    }
+                }
+                else if (userinput.Markers.Count == 1)
+                {
+                    var key = userinput.Markers.Keys.First();
+                    var value = userinput.Markers.Values.First();
+                    var count = value.Count;
+                    var half = count / 2;
+                    MapRequest req1 = cloneWoFeatures(req);
+                    MapRequest req2 = cloneWoFeatures(req);
+                    req1.Markers.Add(key, value.Take(half + 1).ToList());
+                    req2.Markers.Add(key, value.Skip(half).ToList());
+                    foreach (var subreq in splitRequestToGoogle(req1))
+                        yield return subreq;
+                    foreach (var subreq in splitRequestToGoogle(req2))
+                        yield return subreq;
+                }
             }
         }
 
@@ -984,7 +1119,7 @@ namespace MapAt
         {
             var size = bmp.Size;
             var rect = new Rectangle(new Point(0, 0), size);
-            var bmp32 = this.Background = bmp.Clone(rect, PixelFormat.Format32bppArgb);
+            var bmp32 = this.Background = CloneBitmap(bmp); //bmp.Clone(rect, PixelFormat.Format32bppArgb);
             var rowsize = _rowsize = size.Width * 4;
             //var bytesize = size.Height * rowsize;
             //_background = new byte[bytesize];
@@ -1012,61 +1147,74 @@ namespace MapAt
                 throw new ArgumentException("Images do not match");
 
 
-            var bmp32 = this.Background = bmp.Clone(rect, PixelFormat.Format32bppArgb);
-            var read = bmp32.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-
-            var delta = new Bitmap(size.Width, size.Height, PixelFormat.Format32bppArgb);
-            var write = delta.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
-
-            var margin = this.DifferenceMargin;
-            var ma = margin.A;
-            var mr = margin.R;
-            var mg = margin.G;
-            var mb = margin.B;
-            unsafe
+            //using (var bmp32 = bmp.Clone(rect, PixelFormat.Format32bppArgb))
+            using (var bmp32 = CloneBitmap(bmp))
             {
-                var stride = read.Stride;
-                var src = (byte*)read.Scan0;
-                var dest = (byte*)write.Scan0;
-                var same = (byte*)_bg.Scan0;
-                var width = _rowsize;
+                var read = bmp32.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
 
-                for (int y = 0; y < size.Height; y++)
+                var delta = new Bitmap(size.Width, size.Height, PixelFormat.Format32bppArgb);
+                var write = delta.LockBits(rect, ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+
+                var margin = this.DifferenceMargin;
+                var ma = margin.A;
+                var mr = margin.R;
+                var mg = margin.G;
+                var mb = margin.B;
+                unsafe
                 {
-                    var start1 = same;
-                    var start2 = src;
-                    var start3 = dest;
-                    for (int i = 0; i < size.Width; i++)
+                    var stride = read.Stride;
+                    var src = (byte*)read.Scan0;
+                    var dest = (byte*)write.Scan0;
+                    var same = (byte*)_bg.Scan0;
+                    var width = _rowsize;
+
+                    for (int y = 0; y < size.Height; y++)
                     {
-                        var db = Math.Abs(same[0] - src[0]);
-                        var dg = Math.Abs(same[1] - src[1]);
-                        var dr = Math.Abs(same[2] - src[2]);
-                        var da = Math.Abs(same[3] - src[3]);
-                        if (db > mb || dg > mg || dr > mr || da > ma)
+                        var start1 = same;
+                        var start2 = src;
+                        var start3 = dest;
+                        for (int i = 0; i < size.Width; i++)
                         {
-                            dest[0] = src[0];
-                            dest[1] = src[1];
-                            dest[2] = src[2];
-                            dest[3] = src[3];
+                            var db = Math.Abs(same[0] - src[0]);
+                            var dg = Math.Abs(same[1] - src[1]);
+                            var dr = Math.Abs(same[2] - src[2]);
+                            var da = Math.Abs(same[3] - src[3]);
+                            if (db > mb || dg > mg || dr > mr || da > ma)
+                            {
+                                dest[0] = src[0];
+                                dest[1] = src[1];
+                                dest[2] = src[2];
+                                dest[3] = src[3];
+                            }
+
+                            same += 4;
+                            src += 4;
+                            dest += 4;
                         }
-
-                        same += 4;
-                        src += 4;
-                        dest += 4;
+                        same = start1 + stride;
+                        src = start2 + stride;
+                        dest = start3 + stride;
                     }
-                    same = start1 + stride;
-                    src = start2 + stride;
-                    dest = start3 + stride;
                 }
+
+                delta.UnlockBits(write);
+                bmp32.UnlockBits(read);
+                //bg.UnlockBits(bg2);
+
+                return delta;
             }
-
-            delta.UnlockBits(write);
-            bmp32.UnlockBits(read);
-            //bg.UnlockBits(bg2);
-
-            return delta;
         }
 
+        static public Bitmap CloneBitmap(Bitmap bmp)
+        {
+            //Bitmap orig = new Bitmap(@"c:\temp\24bpp.bmp");
+            Bitmap clone = new Bitmap(bmp.Width, bmp.Height, PixelFormat.Format32bppPArgb);
+            using (Graphics g = Graphics.FromImage(clone))
+            {
+                g.DrawImage(bmp, new Rectangle(0, 0, clone.Width, clone.Height));
+            }
+            return clone;
+        }
 
         public void Dispose()
         {
