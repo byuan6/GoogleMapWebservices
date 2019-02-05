@@ -78,7 +78,7 @@ namespace DistanceBetween
         public int HashMask { get { return MaxCacheSize - 1; } }
 
 
-        HashSlot[][] _cache = new HashSlot[DEFAULT_HASHTABLE_SIZE][];
+        HashSlot[][] _cache = createCascadeHashtable(DEFAULT_LEVELS); //new HashSlot[DEFAULT_LEVELS][];
         object[] _expiration = new object[DEFAULT_CACHE_SIZE];
         int _nextexpire = 0;
 

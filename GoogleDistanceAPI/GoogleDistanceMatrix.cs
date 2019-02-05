@@ -505,8 +505,13 @@ namespace DistanceBetween
         public DistElement this[string origin, string dest]
         {
             get
-            {                
-                throw new NotImplementedException();
+            {
+                var bindex = _o2dindex;
+                if (bindex.ContainsKey(origin))
+                    if (bindex[origin].ContainsKey(dest))
+                        if (bindex[origin][dest].Count!=0)
+                            return bindex[origin][dest].FirstOrDefault().GetRecordViaCache();
+                throw new ArgumentOutOfRangeException("origin, dest");
             }
         }
         public bool Contains(string origin, string dest)
@@ -637,7 +642,7 @@ namespace DistanceBetween
                 for (int i= 0; i < destcount; i++)
                     {
                         var from = origin[j];
-                        var to= dest[j];
+                        var to= dest[i];
                         if (this.Contains(from, to))
                         {
                             found[j, i] = true;
@@ -762,12 +767,11 @@ namespace DistanceBetween
             try
             {
                 this.Inventory(e.FullPath);
-                foreach (var item in _unprocessedadds)
-                    this.Inventory(item);
             }
             catch
             {
                 _unprocessedadds.Add(e.FullPath);
+                processadd();
             }
         }
         /// <summary>
@@ -791,6 +795,24 @@ namespace DistanceBetween
             }
             _filenameindex.Add(name,list);
             if (!_recordsmodified) _recordsmodified = true;
+        }
+        void processadd()
+        {
+            ThreadPool.QueueUserWorkItem(delegate(object state)
+            {
+                while (_unprocessedadds.Count > 0)
+                {
+                    var list = new List<string>(_unprocessedadds);
+                    foreach (var item in list)
+                        try
+                        {
+                            this.Inventory(item);
+                            _unprocessedadds.Remove(item);
+                        }
+                        catch { }
+                    Thread.Sleep(250);
+                }
+            });
         }
 
         public void Inventory(string filename)
@@ -822,11 +844,10 @@ namespace DistanceBetween
             this.Clear();
 
             var list = Directory.GetFiles(_watchFolder, WATCH_EXT);
-            //foreach(var item in list)
-//                this.Inventory(item);
+            foreach(var item in list)
+                this.Inventory(item);
 
-            //foreach (var item in list)
-            ParallelOptions options = new ParallelOptions() { MaxDegreeOfParallelism=Environment.ProcessorCount };
+            /*ParallelOptions options = new ParallelOptions() { MaxDegreeOfParallelism=Environment.ProcessorCount };
             Parallel.ForEach(list, options, delegate(string item)
             {
                 try
@@ -835,7 +856,7 @@ namespace DistanceBetween
                     System.Diagnostics.Debug.WriteLine(item);
                 }
                 catch { }
-            });
+            });*/
 
             if (!_recordsmodified) _recordsmodified = true;
             this.Save();
@@ -883,7 +904,7 @@ namespace DistanceBetween
         }
         public void addToHashtables(IndexEntry entry)
         {
-            entry.AppPersistance = _service; //make sure the caching and persistance layer is applied (we have a in-between layer between this, and the file system provided by System.IO)
+            entry.AppPersistance = this; //make sure the caching and persistance layer is applied (we have a in-between layer between this, and the file system provided by System.IO)
             entry.Number = _next++;
 
             if (_originindex.ContainsKey(entry.Origin))
@@ -917,11 +938,12 @@ namespace DistanceBetween
             GoogleDistanceAPI _appspecificPersistanceLayer = null;
             bool _wasparameterlessconstructor = false;
 
-            internal GoogleDistanceAPI AppPersistance
+            internal GoogleLocalDistanceIndex AppPersistance
             {
                 set
                 {
-                    _appspecificPersistanceLayer = value;
+                    _parentIndex = value;
+                    _appspecificPersistanceLayer = value._service;
                 }
             }
 
@@ -941,7 +963,7 @@ namespace DistanceBetween
 
                 return entry;
             }
-            public DistElement GetRecordFromCache()
+            public DistElement GetRecordViaCache()
             {
                 var matrix = GetFileFromCache();
                 var entry = matrix.Row[this.Row][this.Col];
