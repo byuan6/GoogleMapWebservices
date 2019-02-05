@@ -16,10 +16,9 @@ namespace DistanceBetween
 {
     public class GoogleDistanceMatrix
     {
-        static string __API_KEY = GoogleApiKeys.DistanceApiKey;
-
         static int Main(string[] args)
         {
+            bool __USER_PERMISSION_FOR_GOOGLE = false;
             if (args.Length == 0 && System.Console.WindowWidth != 0 && System.Console.WindowHeight != 0)
             {
                 showUsage();
@@ -37,8 +36,32 @@ namespace DistanceBetween
                     return 2;
                 }
                 else
-                    __API_KEY = GoogleApiKeys.DistanceApiKey = key;
+                    GoogleApiKeys.DistanceApiKey = key;
             }
+
+            GoogleLocalDistanceIndex.Index.RemoteRetreive += delegate(object sender, GoogleLocalDistanceIndex.UserRequestEventArgs e)
+            {
+                Console.WriteLine("Data not local, Remotely requesting : {0}", e.Requested);
+                if (!__USER_PERMISSION_FOR_GOOGLE)
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Google charges $ for Distance Matrix API per Data Element. \nThis application can request hundreds of data elements.  \nPlease check the terms of your Google use agreement about cost.  This may incur billing to the API KEY.");
+                    Console.Write("Do you wisth to proceed? (Y/N) >");
+                    var response = Console.ReadLine();
+                    if (response == "Y" || response == "y")
+                        __USER_PERMISSION_FOR_GOOGLE = true;
+                    else
+                        Environment.Exit(0);
+                    Console.WriteLine();
+                }
+            };
+            GoogleLocalDistanceIndex.Index.UserRequestError += delegate(object sender, GoogleLocalDistanceIndex.UserRequestEventArgs e)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Error with : {0}", e.Requested);
+                Console.WriteLine("Message    : {0}", e.Error);
+                Console.WriteLine();
+            };
 
             //see if its a file
             int rcode = 0;
@@ -47,7 +70,8 @@ namespace DistanceBetween
                 using (var fs = File.OpenText(args[0]))
                 {
                     var line = fs.ReadToEnd().Split('\n');
-                    DistanceResults location = getCachedDistances(line);
+                    //DistanceResults location = getCachedDistances(line);
+                    DistanceResults location = GoogleLocalDistanceIndex.Index.GetDistanceMatrix(line);
                     if (location != null)
                         showResult(line, location);
                     else
@@ -73,7 +97,8 @@ namespace DistanceBetween
 
             // all the arguments must be locations then
             {
-                DistanceResults location = getCachedDistances(args);
+                //DistanceResults location = getCachedDistances(args);
+                DistanceResults location = GoogleLocalDistanceIndex.Index.GetDistanceMatrix(args);
                 if (location != null)
                     showResult(args, location);
                 else
@@ -87,6 +112,7 @@ namespace DistanceBetween
 
             return rcode;
         }
+
 
 
 
@@ -111,15 +137,28 @@ namespace DistanceBetween
                 foreach (var col in row)
                 {
                     Console.WriteLine("Path:\t{0}...{1}", distances.Origin[i], distances.Destination[j]);
-                    Console.WriteLine("\tDuration:\t{0}", col.DurationText);
-                    Console.WriteLine("\tDistance:\t{0}", col.DistanceText);
+                    if (col != null)
+                    {
+                        Console.WriteLine("\tDuration:\t{0}", col.DurationText);
+                        Console.WriteLine("\tDistance:\t{0}", col.DistanceText);
+                    }
+                    else
+                        Console.WriteLine("Data not found.  Check the name of the location.  Chnage it to a land address.");
                     i++;
                 }
                 j++;
             }
         }
 
-        public static XmlDocument MakeRequest(string requestUrl)
+    
+    }
+
+    public class GoogleDistanceAPI
+    {
+        static public readonly GoogleDistanceAPI Proxy = new GoogleDistanceAPI();
+        static string __API_KEY = GoogleApiKeys.DistanceApiKey;
+
+        public XmlDocument MakeRequest(string requestUrl)
         {
             try
             {
@@ -140,7 +179,7 @@ namespace DistanceBetween
             }
         }
 
-        public static void WriteXML(DistanceResults store, string f)
+        public void WriteXML(DistanceResults store, string f)
         {
             XmlSerializer writer = new XmlSerializer(typeof(DistanceResults));
 
@@ -153,7 +192,7 @@ namespace DistanceBetween
 
         }
 
-        public static DistanceResults ReadXML(string f)
+        public DistanceResults ReadXML(string f)
         {
             DistanceResults myObject;
 
@@ -173,11 +212,9 @@ namespace DistanceBetween
         }
 
         static TimeSpan __30_DAYS = new TimeSpan(30, 0, 0, 0);
-        static public DistanceResults getCachedDistances(string[] places)
+        public DistanceResults getCachedDistances(string[] places)
         {
-            string[] escaped = places.Select<string, string>(s => System.Uri.EscapeDataString(s)).ToArray<string>();
-            string joined = string.Join("|", escaped);
-            string cachefile = joined.Replace("|","_") + ".distcached";
+            string cachefile = GetFilenameFor(places, places);
 
             if (File.Exists(cachefile) && DateTime.Now - (new FileInfo(cachefile)).LastWriteTime < __30_DAYS)
                 try
@@ -190,17 +227,48 @@ namespace DistanceBetween
                     File.Delete(cachefile);
                 }
 
-            DistanceResults result = getDistancesFromGoogle(escaped);
+            DistanceResults result = getDistancesFromGoogle(places);
             WriteXML(result, cachefile);
 
             return result;
         }
+        
 
-        static public DistanceResults getDistancesFromGoogle(string[] places)
+        public DistanceResults getDistancesFromGoogle(string[] places)
         {
-            string joined = string.Join("|", places);
+            return GetDistancesFromGoogle(places, places);
+        }
+
+        public DistanceResults RetryDistancesFromGoogle(int count, int delayms, string[] from, string[] to)
+        {
+            for (int i = 0; i < count; i++)
+                try
+                {
+                    return CheckedDistancesFromGoogle(from, to);
+                }
+                catch
+                {
+                    if(i<count-1)
+                        Thread.Sleep(delayms);
+                }
+            throw new ApplicationException("Retries exceeded");
+        }
+        public DistanceResults CheckedDistancesFromGoogle(string[] from, string[] to)
+        {
+            var result = GetDistancesFromGoogle(from, to);
+            if (result.Status == "OVER_QUERY_LIMIT")
+                throw new ApplicationException("OVER_QUERY_LIMIT");
+            else if (result.Status == "INVALID_REQUEST")
+                throw new ApplicationException("INVALID_REQUEST");
+
+            return result;
+        }
+        public DistanceResults GetDistancesFromGoogle(string[] from, string[] to)
+        {
+            string joined1 = string.Join("|", ToUrlSafeRequest(from));
+            string joined2 = from == to ? joined1 : string.Join("|", ToUrlSafeRequest(to));
             // string url = "http://maps.googleapis.com/maps/api/distancematrix/xml?origins=New+York+NY|Seattle&destinations=San+Francisco|New+York+NY|Boston&mode=driving&language=en-US&sensor=false";
-            string url = string.Format(@"https://maps.googleapis.com/maps/api/distancematrix/xml?key={1}&origins={0}&destinations={0}&mode=driving&language=en-US&sensor=false", joined, __API_KEY);
+            string url = string.Format(@"https://maps.googleapis.com/maps/api/distancematrix/xml?key={0}&origins={1}&destinations={2}&mode=driving&language=en-US&sensor=false", __API_KEY, joined1, joined2);
 
             XmlDocument doc = MakeRequest(url);
 
@@ -335,6 +403,26 @@ namespace DistanceBetween
 
             return result;
         }
+
+        static public string[] ToUrlSafeRequest(string[] places)
+        {
+            string[] escaped = places.Select<string, string>(s => System.Uri.EscapeDataString(s)).ToArray<string>();
+            return escaped;
+        }
+
+        static public string GetFilenameFor(string[] from, string[] to)
+        {
+            if (from == to)
+            {
+                string[] escaped = from.Select<string, string>(s => System.Uri.EscapeDataString(s)).ToArray<string>();
+                string joined = string.Join("|", escaped);
+                string cachefile = joined.Replace("|", "_") + ".distcached";
+                return cachefile;
+            }
+            else
+                throw new NotImplementedException("GetFilenameFor(string,string) not complete");
+        }
+        
     }
 
     
@@ -368,10 +456,9 @@ namespace DistanceBetween
             string cachefile = joined.Replace("|", "!") + ".distcached";
             return cachefile;
         }
-    }
-    public class DistanceMatrix : DistanceResults
-    {
 
+        public string[] OriginResponse;
+        public string[] DestinationResponse;
     }
 
 
@@ -379,7 +466,7 @@ namespace DistanceBetween
     public class GoogleLocalDistanceIndex
     {
         static GoogleLocalDistanceIndex __index = new GoogleLocalDistanceIndex();
-        static GoogleLocalDistanceIndex Index
+        static public GoogleLocalDistanceIndex Index
         {
             get
             {
@@ -389,7 +476,15 @@ namespace DistanceBetween
 
 
         public GoogleLocalDistanceIndex() 
-        { 
+        {
+            try
+            {
+                this.Load();
+            }
+            catch {
+                this.Refresh();
+            }
+
             var watcher = _watcher;
             watcher.Changed+= new FileSystemEventHandler(watcher_Changed);
             watcher.Created+= new FileSystemEventHandler(watcher_Created);
@@ -398,7 +493,8 @@ namespace DistanceBetween
             _watcher.EnableRaisingEvents = true;
         }
 
-        
+        GoogleDistanceAPI _service = new GoogleDistanceAPI();
+        FixedSizeObjectCache _cache = new FixedSizeObjectCache();
 
         const string WATCH_EXT = "*.distcached";
         string _watchFolder = Environment.CurrentDirectory;
@@ -413,6 +509,14 @@ namespace DistanceBetween
                 throw new NotImplementedException();
             }
         }
+        public bool Contains(string origin, string dest)
+        {
+            var bindex = _o2dindex;
+            if (bindex.ContainsKey(origin))
+                if (bindex[origin].ContainsKey(dest))
+                    return true;
+            return false;
+        }
         public List<DistElement> GetDistancesFrom(string origin)
         {
             throw new NotImplementedException();
@@ -421,19 +525,71 @@ namespace DistanceBetween
         {
             throw new NotImplementedException();
         }
-        //we want a system of ordering the requests to make best use of caching... order the requests by origin and destination
-        public DistanceMatrix GetDistanceMatrix(IList<string> origin, IList<string> dest)
+
+        public DistanceResults GetDistanceMatrix(IList<string> origindest)
         {
-            throw new NotImplementedException();
+            return GetDistanceMatrix(origindest, origindest);
+        }
+
+        static string calculateBase64Hash(string input)
+        {
+            // step 1, calculate MD5 hash from input
+            System.Security.Cryptography.MD5 md5 = System.Security.Cryptography.MD5.Create();
+            byte[] inputBytes = System.Text.Encoding.ASCII.GetBytes(input);
+            byte[] hash = md5.ComputeHash(inputBytes);
 
 
-            DistanceMatrix matrix = new DistanceMatrix();
+            return Convert.ToBase64String(hash).Replace("=", "").Replace("/", "-");
+        }
+        static string filehash(string candidate)
+        {
+            char[] invalid = Path.GetInvalidFileNameChars();
+            string name = candidate.Replace("%20", "+").Replace(" ", "").Replace("%2C", ",");
+            var escaped = name.Select<char, char>(s => Array.IndexOf<char>(invalid, s) >= 0 ? '_' : s).ToArray<char>();
+
+            return new string(escaped);
+        }
+        static public string getNTFSName(string[] origin, string[] dest)
+        {
+            string[] escaped1 = origin.Select<string, string>(s => filehash(s)).ToArray<string>();
+            string[] escaped2 = dest.Select<string, string>(s => filehash(s)).ToArray<string>();
+            string joined = filehash(string.Join("-", escaped1) + string.Join("-", escaped2));
+            if (joined.Length > 120)
+                joined = joined.Substring(0, 100) + "."+ calculateBase64Hash(joined);
+
+            string cachefile = joined + ".distcached";
+            return cachefile;
+        }
+        static public string getNTFSName(string bigname)
+        {
+            string namevalidchar = filehash(bigname);
+            if (namevalidchar.Length > 120)
+                namevalidchar = namevalidchar.Substring(0, 100) + "." + calculateBase64Hash(namevalidchar);
+
+            string cachefile = namevalidchar + ".distcached";
+            return cachefile;
+        }
+
+
+        //we want a system of ordering the requests to make best use of caching... order the requests by origin and destination
+        public DistanceResults GetDistanceMatrix(IList<string> origin, IList<string> dest)
+        {
+            DistanceResults matrix = new DistanceResults() { Status = "OK" };
             matrix.Origin.AddRange(origin);
             matrix.Destination.AddRange(dest);
+            matrix.OriginResponse = new string[origin.Count];
+            matrix.DestinationResponse = new string[dest.Count];
 
             //find out if an existing resultset was requested and cached
-            var filename = matrix.ToFilename();
-            //see if filename cached, then filename exists
+            var filename = getNTFSName(matrix.ToFilename());
+            //hash the filename to comply with NTFS rules
+            if (File.Exists(filename))
+                try
+                {
+                    return _service.ReadXML(filename);
+                    //return GoogleDistanceMatrix.ReadXML(filename);
+                }
+                catch { File.Delete(filename); }
 
             //resultset not cached
             matrix.Row.AddRange(origin.Select(s => new List<DistElement>(dest.Select<string, DistElement>(s2 => null))));
@@ -472,13 +628,102 @@ namespace DistanceBetween
             //
             // so to minimize the number of costable requests to google..., though we can call [Z Y X W] x [C D E], with a 75% miss rate
             // is a 
+            var notfound = false;
+            var matrixRow = matrix.Row;
+            var oricount = origin.Count;
+            var destcount = dest.Count;
+            bool[,] found = new bool[destcount, oricount];
+            for(int j=0; j<oricount; j++)
+                for (int i= 0; i < destcount; i++)
+                    {
+                        var from = origin[j];
+                        var to= dest[j];
+                        if (this.Contains(from, to))
+                        {
+                            found[j, i] = true;
+                            matrixRow[j][i] = this[from, to];
+                        }
+                        else if (!notfound)
+                            notfound = true;
+                    }
 
+            if (notfound)
+            {
+                ReduceSurfaceAreaByReordering waterdrop = new ReduceSurfaceAreaByReordering() { Area = found };
+                waterdrop.SortPass += delegate(object sender, EventArgs e)
+                {
+                    Console.WriteLine("Finding missing elements");
+                };
+                BiggestContiguousBlock skimmer = new BiggestContiguousBlock(waterdrop);
+                foreach (var item in skimmer.Chunkify(false))
+                {
+                    //item.SetAllTrue();
+
+                    const int GOOGLE_MAX_ORIGIN_OR_DEST = 25;
+                    const int GOOGLE_MAX_REQUESTS = 100;
+                    const int GOOGLE_DEFACTO_MAX_ORIGIN_AND_DEST = 10;
+                    foreach (var subitem in item.Chunkify(GOOGLE_DEFACTO_MAX_ORIGIN_AND_DEST))
+                    {
+                        var suborigin = subitem.RowIndices.Select(s => origin[s]).ToArray();
+                        var subdest = subitem.ColIndices.Select(s => dest[s]).ToArray();
+
+                        if (this.RemoteRetreive != null)
+                            this.RemoteRetreive(this, new UserRequestEventArgs("[" + string.Join("; ", suborigin) + "] to [" + string.Join("; ",subdest) + "]"));
+
+                        var googleresults = _service.RetryDistancesFromGoogle(10, 1000, suborigin, subdest);  //GetDistancesFromGoogle(suborigin, subdest); //change this to 
+                        var row=0;
+                        var col=0;
+                        foreach (var fromindex in subitem.RowIndices)
+                        {
+                            col = 0;
+                            foreach (var toindex in subitem.ColIndices)
+                            {
+                                var from = origin[fromindex];
+                                var to = dest[toindex];
+                                var data = googleresults.Row[row][col++];
+                                if (data.Status == "OK")
+                                    matrixRow[fromindex][toindex] = data;
+                                else 
+                                    if (this.UserRequestError != null)
+                                        this.UserRequestError(this, new UserRequestEventArgs("[" + from + "] to [" + to + "]", data.Status));
+                            }
+                            row++;
+                        }
+                        
+                        //until alias system is up, update with user requested name
+                        row=0;
+                        col=0;
+                        foreach (var fromindex in subitem.RowIndices)
+                            matrix.OriginResponse[fromindex] = googleresults.Origin[row++];
+                        foreach (var toindex in subitem.ColIndices)
+                            matrix.DestinationResponse[toindex] = googleresults.Destination[col++];
+
+                        subitem.SetAllTrue();
+                    }
+                }
+
+                
+
+                _service.WriteXML(matrix, filename);
+            }
 
 
             //and group the stuff cached, in such a way that it takes the best use of the deserialized object cache... (obviously file caching works better too)
 
+            return matrix;
+
         }
 
+        public event EventHandler<UserRequestEventArgs> RemoteRetreive;
+        public event EventHandler<UserRequestEventArgs> UserRequestError;
+        public class UserRequestEventArgs : EventArgs
+        {
+            public UserRequestEventArgs(string request) { this.Requested = request; }
+            public UserRequestEventArgs(string request, string error):this(request) { this.Error = error; }
+
+            readonly public string Requested;
+            readonly public string Error;
+        }
 
         bool _recordsmodified = false;
         int _next = 0;
@@ -487,6 +732,7 @@ namespace DistanceBetween
         Dictionary<string, List<IndexEntry>> _destindex = new Dictionary<string, List<IndexEntry>>();
         Dictionary<string, List<IndexEntry>> _filenameindex = new Dictionary<string, List<IndexEntry>>();
         Dictionary<string, Dictionary<string, List<IndexEntry>>> _o2dindex = new Dictionary<string, Dictionary<string, List<IndexEntry>>>();
+        HashSet<string> _unprocessedadds = new HashSet<string>();
 
         /// <summary>
         /// Deleting is going to be a watch thing only.  Refresh will never pick it up.  The user will not have option.
@@ -497,11 +743,14 @@ namespace DistanceBetween
         void  watcher_Deleted(object sender, FileSystemEventArgs e)
         {
             var name = e.FullPath;
-            var list = _filenameindex[name];
-            _filenameindex.Remove(name);
-            foreach (var item in list)
-                item.IsDeleted = true;
-            if (!_recordsmodified) _recordsmodified = true;
+            if (_filenameindex.ContainsKey(name))
+            {
+                var list = _filenameindex[name];
+                _filenameindex.Remove(name);
+                foreach (var item in list)
+                    item.IsDeleted = true;
+                if (!_recordsmodified) _recordsmodified = true;
+            }
         }
         /// <summary>
         /// Adding new file is controlled by Inventory(), but will not be triggered sychronously with user action.
@@ -510,7 +759,16 @@ namespace DistanceBetween
         /// <param name="e"></param>
         void  watcher_Created(object sender, FileSystemEventArgs e)
         {
-            this.Inventory(e.FullPath);
+            try
+            {
+                this.Inventory(e.FullPath);
+                foreach (var item in _unprocessedadds)
+                    this.Inventory(item);
+            }
+            catch
+            {
+                _unprocessedadds.Add(e.FullPath);
+            }
         }
         /// <summary>
         /// Assumes worst case, that the file is completely different.  Removes old entries
@@ -538,7 +796,7 @@ namespace DistanceBetween
         public void Inventory(string filename)
         {
             var records = _records;
-            var matrix = GoogleDistanceMatrix.ReadXML(filename);
+            var matrix = _service.ReadXML(filename);
             var o = matrix.Origin;
             var h = o.Count;
             var d = matrix.Destination;
@@ -549,7 +807,7 @@ namespace DistanceBetween
                     var element = matrix.Row[j][i];
                     var entry = new IndexEntry(this) { Col = i, Row = j, Filename = filename, Origin = o[j], Dest = d[i] };
                     records.Add(entry);
-                    lock (this)
+                    lock (_o2dindex)
                         addToHashtables(entry);
                 }
             if (!_recordsmodified) _recordsmodified = true;
@@ -564,13 +822,20 @@ namespace DistanceBetween
             this.Clear();
 
             var list = Directory.GetFiles(_watchFolder, WATCH_EXT);
+            //foreach(var item in list)
+//                this.Inventory(item);
 
             //foreach (var item in list)
-            ParallelOptions options = new ParallelOptions() { MaxDegreeOfParallelism=Environment.ProcessorCount/2 };
-            Parallel.ForEach(list, new Action<string>(delegate(string item)
+            ParallelOptions options = new ParallelOptions() { MaxDegreeOfParallelism=Environment.ProcessorCount };
+            Parallel.ForEach(list, options, delegate(string item)
             {
-                this.Inventory(item);
-            }));
+                try
+                {
+                    this.Inventory(item);
+                    System.Diagnostics.Debug.WriteLine(item);
+                }
+                catch { }
+            });
 
             if (!_recordsmodified) _recordsmodified = true;
             this.Save();
@@ -618,7 +883,7 @@ namespace DistanceBetween
         }
         public void addToHashtables(IndexEntry entry)
         {
-            entry.AppPersistance = this; //make sure the caching and persistance layer is applied (we have a in-between layer between this, and the file system provided by System.IO)
+            entry.AppPersistance = _service; //make sure the caching and persistance layer is applied (we have a in-between layer between this, and the file system provided by System.IO)
             entry.Number = _next++;
 
             if (_originindex.ContainsKey(entry.Origin))
@@ -647,11 +912,12 @@ namespace DistanceBetween
         public class IndexEntry
         {
             public IndexEntry() { _wasparameterlessconstructor = true; }
-            public IndexEntry(GoogleLocalDistanceIndex persistanceLayer) { _appspecificPersistanceLayer = persistanceLayer; }
-            GoogleLocalDistanceIndex _appspecificPersistanceLayer = null;
+            public IndexEntry(GoogleLocalDistanceIndex parentIndex) { _parentIndex = parentIndex; _appspecificPersistanceLayer = parentIndex._service; }
+            GoogleLocalDistanceIndex _parentIndex = null;
+            GoogleDistanceAPI _appspecificPersistanceLayer = null;
             bool _wasparameterlessconstructor = false;
 
-            internal GoogleLocalDistanceIndex AppPersistance
+            internal GoogleDistanceAPI AppPersistance
             {
                 set
                 {
@@ -670,7 +936,7 @@ namespace DistanceBetween
 
             public DistElement GetRecord()
             {
-                var matrix = GoogleDistanceMatrix.ReadXML(this.Filename);
+                var matrix = _appspecificPersistanceLayer.ReadXML(this.Filename);
                 var entry = matrix.Row[this.Row][this.Col];
 
                 return entry;
@@ -688,7 +954,7 @@ namespace DistanceBetween
                 if (_appspecificPersistanceLayer != null)
                 {
                     var persistance = _appspecificPersistanceLayer;
-                    var cachingmechanism = persistance.CachingMechanism;
+                    var cachingmechanism = _parentIndex._cache;
 
                     var filename = this.Filename;
                     var obj = cachingmechanism.GetFromObjectCache(filename);
@@ -696,13 +962,13 @@ namespace DistanceBetween
                         return (DistanceResults)obj;
 
                     //cache miss
-                    var matrix = GoogleDistanceMatrix.ReadXML(this.Filename);
+                    var matrix = _appspecificPersistanceLayer.ReadXML(this.Filename);
                     cachingmechanism.AddToObjectCache(filename, matrix);
 
                     return matrix;
                 }
                 else if (!_wasparameterlessconstructor)
-                    return GoogleDistanceMatrix.ReadXML(this.Filename);
+                    return _appspecificPersistanceLayer.ReadXML(this.Filename);
                 else
                     throw new NotSupportedException("You need to instantiate IndexEntry(GoogleLocalDistanceIndex), even if it is null.  The parameterless constructor was strictly for XmlSerializer, which was intended to be used by ObjectCache, which requires to know the persistance layer/object type it is caching.");
             }
@@ -712,280 +978,34 @@ namespace DistanceBetween
 
     }
 
-
-    /// <summary>
-    /// Instead of tree for hash collisions which are going to be annoying to make threadsafe
-    /// Can we do a geometrically series hash tables... , sized 2^10,2^9,2^8,2^7,2^6,2^5,2^4,2^3 which is always twice the specified size.
-    /// So collision in level 1, rehash the index, remask for level2, collision, rehash the index, remask for level3, etc.
-    /// but this doesnt prevent collisions, just shares memory space for collisions in multiple slots in level above it
-    ///   ... do we really need to have the data always available?  We expect cache misses don't we?
-    ///   ... so why not add the latest one, and overwrite the oldest?
-    ///   ... what are the chances of 5 consecutive collisions, when the collision space is supposed to be garbage collected...
-    ///   perfect operation means
-    ///   [A B C D E F G H] level1 hashtble of weak references
-    ///   [A B C D E F G H] strong references table shows the latest objects inserted
-    ///   [I J K L] level 2 all weak references collected bc they don't exist in strong references table
-    ///   [M N] level 3 all weak references collected (above)
-    ///   worst case means 
-    ///   [A B C D * * * *] level1 hashtble of weak references, but multiple hash collisions push storage into high levels, where shared slots with collision overflow with other slots are also incurring high number of collisions.
-    ///   [A B C D E F G H] strong references table shows the latest objects inserted
-    ///   [E G I J] level 2, slot 1 and 2, all have strong references still bc of multiple collisions
-    ///   [F H] level 3,slot 1 and 2, all have strong references still bc of multiple collisions
-    ///   What do we do in worst case?  
-    ///     We offer no guarantees the object you inserted before is still there, when you try to get it.
-    ///     Depending on the memory pressure and timing of trying to get the data, it may or may nor appear
-    ///     So we just assume the later record is more valuable and overwrite the oldest record in the hashslot
-    ///   Improvement... The file caching in Windows seems excellent.  With SSD, and corei5-4series repeated reads can reduce read times to 10% of what they were.
-    ///   At best, re-reading the same file with this caching the resulting object, results anywhere from 100% worse with completely random, multi-threaded file reads and a cache 10x smaller than number of files read
-    ///     but when single threaded random reads, it seems to reduce read time in half, strangely not in proportion to size of cache to files
-    ///     but in multi-threaded, sorted so repeated reads of same file are close together, it improves 10x from reading from file system.
-    /// </summary>
-    public class FixedSizeObjectCache
+    public class DistanceRequest
     {
-        static int DEFAULT_LEVELS = 13;
-        static int DEFAULT_HASHTABLE_SIZE = 1 << DEFAULT_LEVELS;
-        static int DEFAULT_CACHE_SIZE = 1 << DEFAULT_LEVELS;
-        static HashSlot[][] createCascadeHashtable(int size)
+        public UserRequestedName[] Origins;
+        public UserRequestedName[] Destinations;
+    }
+    public class UserRequestedName
+    {
+        public UserRequestedName() { }
+        public UserRequestedName(string locationname) { this.LocationName = locationname; }
+
+        public string LocationName;
+        public List<string> Alias = new List<string>();
+        public void Save()
         {
-            var jagged = new HashSlot[size][];
-            for (int i = 0; i < size; i++)
-                jagged[i] = new HashSlot[1 << (size - i)];
-            return jagged;
+            //save .distalias, so the alias-->userrequest can be established (if we want to show the original user request)
+            //save .distreqname, so user request-->alias can be established (indexed entry is under alias)
         }
-        static int collisionBuffersToMask(int collisionbuffercount)
+        public void Load()
         {
-            return collisionBuffersToMaxHashtableSize(collisionbuffercount) - 1;
+            //Load .distreqname
         }
-        static int collisionBuffersToMaxHashtableSize(int collisionbuffercount)
+        public void ParseResponseName(string response)
         {
-            return 1 << collisionbuffercount;
-        }
-
-
-        byte _masksize = 13; // 1<<13=8192   //3k x 10,000 = 30MB
-        public byte MaskSize
-        {
-            get { return _masksize; }
-            set
-            {
-                _masksize = value;
-                var size = 1 << value;
-                if (size != _cache.Length)
-                {
-                    _cache = createCascadeHashtable(value);
-                    _expiration = new object[this.MaxCacheSize];
-                    _nextexpire = 0;
-                }
-            }
-        }
-        public int MaxCacheSize { get { return 1 << _masksize; } }
-        public int MaxHashSize { get { return 1 << _masksize; } }
-        public int HashMask { get { return MaxCacheSize - 1; } }
-
-
-        HashSlot[][] _cache = new HashSlot[DEFAULT_HASHTABLE_SIZE][];
-        object[] _expiration = new object[DEFAULT_CACHE_SIZE];
-        int _nextexpire = 0;
-
-
-
-        int _missbccollected = 0;
-        int _hit = 0;
-        int _miss = 0;
-        int _max = 0;
-        public object GetFromObjectCache(string filename)
-        {
-            var cache = _cache;
-            var hash = filename.GetHashCode();
-            //var mask = this.HashMask;
-            //var index = filename.GetHashCode() & mask;
-
-            var maxlevel = _masksize;
-            for (int level = 0; level < maxlevel - 1; level++) ////one day, replace this loop with foreach(getBufferRecord())
-            {
-                var hashtable = cache[level];
-                var remainingbuffers = maxlevel - level;
-                var mask = collisionBuffersToMask(remainingbuffers);
-                var index = hash & mask;
-                var found = hashtable[index];
-                if (found.Key == filename)
-                {
-                    _hit++;
-                    return found.Value.Target;
-                }
-                hash = hash.GetHashCode(); //re-randomize for next level
-            }
-
-            _miss++;
-            return null;
-        }
-        public double GetHitRate()
-        {
-            var den = _hit + _miss;
-            if (den != 0)
-                return (double)_hit / den;
-            return 0;
-        }
-        public double GetMaxActual()
-        {
-            return _max;
-        }
-        public double MissBcCollected()
-        {
-            return _missbccollected;
-        }
-        public void Reset()
-        {
-            _max = 0;
-            _missbccollected = 0;
-            _hit = 0;
-            _miss = 0;
-            this.MaskSize = 13;
-
-            //_cache = createCascadeHashtable(_masksize);
-            //_expiration = new object[this.MaxCacheSize];
-            //_nextexpire = 0;
-        }
-        public void AddToObjectCache(string filename, object obj)
-        {
-            var cache = _cache;
-            var hash = filename.GetHashCode();
-
-            var isinserted = false;
-            var maxlevel = _masksize;
-            DateTime oldest = DateTime.MaxValue;
-            int oldestindex = 0;
-            int oldestlevel = 0;
-            for (int level = 0; level < maxlevel - 1; level++) //one day, replace this loop with foreach(getIndexInBuffer())
-            {
-                var remainingbuffers = maxlevel - level;
-                var mask = collisionBuffersToMask(remainingbuffers);
-                var index = hash & mask;
-
-                var hashtable = cache[level];
-                var found = hashtable[index];
-                if (oldest < found.CreatedDate)
-                {
-                    oldest = found.CreatedDate;
-                    oldestindex = index;
-                    oldestlevel = level;
-                }
-                if (found.Key == null || found.Key == filename) //empty or same filename, so replace (there should only be one with same name, so don't bother checking for duplicate)
-                {
-                    hashtable[index] = new HashSlot(filename, new WeakReference(obj), null);
-                    isinserted = true;
-                    break;
-                }
-                else if (found.Value.Target == null) //everything falling here, has to have key and therefore a WeakReference, so checking if expired.  If so, remove prev entry, if one exists
-                {
-                    hashtable[index] = new HashSlot(filename, new WeakReference(obj), null);
-                    removeStartingAtLevel(filename, level + 1, hash);
-                    isinserted = true;
-                    break;
-                }
-                hash = hash.GetHashCode(); //re-randomize for next level
-            }
-            if (!isinserted)
-            {
-                //all collision buffers are filled AND active
-                //overwrite the oldest
-                cache[oldestlevel][oldestindex] = new HashSlot(filename, new WeakReference(obj), null);
-            }
-
-
-            pinInRotatingMemory(obj);
-        }
-
-        object pinInRotatingMemory(object obj)
-        {
-            var next = _nextexpire;
-            if (next > _masksize) //the increment is interlocked, but the reset to zero isn't part of that "transaction"
-                next = next % _masksize;
-            var expired = _expiration[next];
-            _expiration[next] = obj;
-            Interlocked.Increment(ref _nextexpire);
-            if (_nextexpire >= this.MaxCacheSize)
-                _nextexpire = 0;
-
-            return expired; //free to be garbage collected once refernce is lost... may be null, which means everything not added, is still cached
-        }
-        void removeStartingAtLevel(string filename, int startinglevel, int hash)
-        {
-            var cache = _cache;
-            foreach (var index in getIndexInBuffer(startinglevel, hash))
-            {
-                var hashtable = cache[startinglevel++];
-                var found = hashtable[index];
-                if (found.Key == filename)
-                {
-                    hashtable[index] = default(HashSlot);
-                    break;
-                }
-            }
-        }
-        IEnumerable<int> getIndexInBuffer(int startinglevel, int hash)
-        {
-            var maxlevel = _masksize;
-            for (int level = startinglevel; level < maxlevel - 1; level++)
-            {
-                var remainingbuffers = maxlevel - level;
-                var mask = collisionBuffersToMask(remainingbuffers);
-                var index = hash & mask;
-                yield return index;
-            }
-        }
-        IEnumerable<HashSlot> getBufferRecord(int startinglevel, int hash)
-        {
-            var cache = _cache;
-            foreach (var index in getIndexInBuffer(startinglevel, hash))
-            {
-                var hashtable = cache[startinglevel++];
-                yield return hashtable[index];
-            }
-        }
-
-        public struct HashSlot
-        {
-            public HashSlot(string key, WeakReference value, SlotCounter counter)
-            {
-                this.Key = key;
-                this.Value = value;
-                this.CreatedDate = DateTime.Now;
-                this.Counter = counter;
-            }
-
-            public string Key;
-            public WeakReference Value;
-            public DateTime CreatedDate;
-            public SlotCounter Counter;
-        }
-        public class SlotCounter
-        {
-            HashSet<int> _occupied = new HashSet<int>();
-            public void Occupied(int level)
-            {
-                _occupied.Add(level);
-            }
-            public void Released(int level)
-            {
-                _occupied.Remove(level);
-            }
-            public int Max
-            {
-                get
-                {
-                    var occupied = _occupied;
-                    while (true)
-                        try
-                        {
-                            var max = occupied.Max();
-                            return max;
-                        }
-                        catch { } //keep retrying until this works... assuming that this won't affect a correct write operation, but a write operation can cause exception here
-                }
-            }
+            //get response, check if returned name is different from .UserRequest
+            //Save().
         }
     }
+
 
 
     static public partial class GoogleApiKeys

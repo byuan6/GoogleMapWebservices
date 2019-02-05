@@ -52,6 +52,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BiggestContiguousBlock.cs" />
+    <Compile Include="FixedSizeObjectCache.cs" />
     <Compile Include="GoogleDistanceMatrix.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
