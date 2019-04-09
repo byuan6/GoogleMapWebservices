@@ -7,6 +7,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DistanceBetween", "GoogleDi
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MapAt", "GoogleStaticMap\MapAt.csproj", "{E5998C02-48CF-4F5A-9515-DD6ACD716D74}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlockDivision", "DemoDistanceRequestSplitter\BlockDivision.csproj", "{CC5419AF-1D9A-4D47-81EF-DB8F8AC27830}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x86 = Debug|x86
@@ -25,6 +27,10 @@ Global
 		{E5998C02-48CF-4F5A-9515-DD6ACD716D74}.Debug|x86.Build.0 = Debug|x86
 		{E5998C02-48CF-4F5A-9515-DD6ACD716D74}.Release|x86.ActiveCfg = Release|x86
 		{E5998C02-48CF-4F5A-9515-DD6ACD716D74}.Release|x86.Build.0 = Release|x86
+		{CC5419AF-1D9A-4D47-81EF-DB8F8AC27830}.Debug|x86.ActiveCfg = Debug|x86
+		{CC5419AF-1D9A-4D47-81EF-DB8F8AC27830}.Debug|x86.Build.0 = Debug|x86
+		{CC5419AF-1D9A-4D47-81EF-DB8F8AC27830}.Release|x86.ActiveCfg = Release|x86
+		{CC5419AF-1D9A-4D47-81EF-DB8F8AC27830}.Release|x86.Build.0 = Release|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

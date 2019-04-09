@@ -426,15 +426,6 @@ namespace DistanceBetween
     }
 
     
-    public class DistElement
-    {
-        public string Status { get;set; }
-        public string DurationSeconds { get;set; }
-        public string DurationText { get;set; }
-        public string DistanceMeters { get;set; }
-        public string DistanceText { get;set; }
-    }
-
     public class DistanceResults
     {
         public bool IsCached { get; set; }
@@ -450,15 +441,24 @@ namespace DistanceBetween
         /// <returns></returns>
         public string ToFilename()
         {
-            string[] escaped1 = this.Origin.Select<string, string>(s => System.Uri.EscapeDataString(s)).ToArray<string>();
-            string[] escaped2 = this.Destination.Select<string, string>(s => System.Uri.EscapeDataString(s)).ToArray<string>();
-            string joined = string.Join("|", escaped1) + "|" + string.Join("|", escaped2);
-            string cachefile = joined.Replace("|", "!") + ".distcached";
+            string[] escaped1 = this.Origin.ToArray<string>();
+            string[] escaped2 = this.Destination.ToArray<string>();
+            string joined = string.Join("!", escaped1) + ";" + string.Join("!", escaped2);
+            string cachefile = joined.Replace("|", "!") + ".distcached.xml";
             return cachefile;
         }
 
         public string[] OriginResponse;
         public string[] DestinationResponse;
+    }
+
+    public class DistElement
+    {
+        public string Status { get; set; }
+        public string DurationSeconds { get; set; }
+        public string DurationText { get; set; }
+        public string DistanceMeters { get; set; }
+        public string DistanceText { get; set; }
     }
 
 
